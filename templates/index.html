@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Handler</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <h1>Image Processor</h1>
+    <form hx-post="/upload" hx-target="#upload-result" hx-encoding="multipart/form-data">
+        <label for="file">Upload Images:</label>
+        <input type="file" name="files" accept="image/*" multiple required>
+        <button type="submit">Upload</button>
+    </form>
+    <div id="upload-result"></div>
+    <div id="process-form" style="display:none;">
+        <h2>Process Image</h2>
+        <form hx-post="/process" hx-target="#process-result" hx-encoding="multipart/form-data">
+            <label for="file_id">Select Images (hold Ctrl to select multiple):</label>
+            <select name="file_ids" id="file_id" multiple></select><br>
+            <label for="dpi">DPI:</label>
+            <input type="number" name="dpi" placeholder="e.g. 300"><br>
+            <label for="format_change">Change Format:</label>
+            <select name="format_change">
+                <option value="">Keep Original</option>
+                <option value="JPG">JPG</option>
+                <option value="JPEG">JPEG</option>
+                <option value="PNG">PNG</option>
+                <option value="TIF">TIF</option>
+                <option value="WEBP">WEBP</option>
+            </select><br>
+            <label>Resize:</label><br>
+            <input type="number" name="width" placeholder="Width (px)">
+            <input type="number" name="height" placeholder="Height (px)"><br>
+            <input type="text" name="aspect_ratio" placeholder="Aspect Ratio (e.g. 16:9)"><br>
+            <input type="number" name="percentage" placeholder="Percentage (%)"><br>
+            <input type="number" name="total_pixels" placeholder="Total Pixels"><br>
+            <button type="submit">Process</button>
+        </form>
+    </div>
+    <div id="process-result"></div>
+    <h2>Task Summary</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Original Name</th>
+                <th>Original Size</th>
+                <th>Changes</th>
+                <th>New Size</th>
+                <th>Download</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for task in tasks %}
+            <tr>
+                <td>{{ task.original }}</td>
+                <td>{{ task.original_size }}</td>
+                <td>
+                    {% if task.changes %}
+                        {% if task.changes.format %}Format: {{ task.changes.format }}<br>{% endif %}
+                        {% if task.changes.dpi %}DPI: {{ task.changes.dpi }}<br>{% endif %}
+                        {% if task.changes.size %}Size: {{ task.changes.size }}{% endif %}
+                    {% else %}
+                        No changes
+                    {% endif %}
+                </td>
+                <td>{{ task.new_size }}</td>
+                <td><a href="/download/{{ task.id }}">Download</a></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
