@@ -304,6 +304,8 @@ class ImageProcessorApp:
             self.height_entry.config(state="normal")
             self.percent_entry.config(state="disabled")
             self.aspect_entry.config(state="disabled")
+            self.width_var.set("")
+            self.height_var.set("")
             self.percentage_var.set("")
             self.aspect_ratio_var.set("")
             
@@ -313,6 +315,8 @@ class ImageProcessorApp:
             self.height_entry.config(state="disabled")
             self.percent_entry.config(state="disabled")
             self.aspect_entry.config(state="normal")
+            self.width_var.set("")
+            self.height_var.set("")
             self.percentage_var.set("")
             
         elif mode == "percentage":
@@ -321,6 +325,8 @@ class ImageProcessorApp:
             self.height_entry.config(state="disabled")
             self.percent_entry.config(state="normal")
             self.aspect_entry.config(state="disabled")
+            self.width_var.set("")
+            self.height_var.set("")
             self.aspect_ratio_var.set("")
     
     def calculate_dimensions_from_percentage(self, *args):
@@ -337,29 +343,12 @@ class ImageProcessorApp:
         try:
             percentage = float(percentage_val)
             if percentage > 0:
-                # Get sample image dimensions from input folder if available
-                input_path = self.input_folder.get().strip()
-                if input_path and os.path.exists(input_path) and os.path.isdir(input_path):
-                    # Try to get first image to calculate dimensions
-                    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
-                    try:
-                        for f in Path(input_path).iterdir():
-                            if f.is_file() and f.suffix.lower() in image_extensions:
-                                try:
-                                    with Image.open(f) as img:
-                                        w, h = img.size
-                                        new_w = int(w * percentage / 100)
-                                        new_h = int(h * percentage / 100)
-                                        self.width_var.set(str(new_w))
-                                        self.height_var.set(str(new_h))
-                                        return
-                                except Exception as e:
-                                    continue
-                    except Exception as e:
-                        pass
-                # If no image found, show placeholder
-                self.width_var.set("Will be calculated")
-                self.height_var.set("Will be calculated")
+                # Show that dimensions will be calculated per image
+                self.width_var.set("Auto-calculated per image")
+                self.height_var.set("Auto-calculated per image")
+            else:
+                self.width_var.set("")
+                self.height_var.set("")
         except ValueError:
             self.width_var.set("Invalid %")
             self.height_var.set("Invalid %")
@@ -383,28 +372,9 @@ class ImageProcessorApp:
         try:
             ar_w, ar_h = map(int, aspect_val.split(':'))
             if ar_w > 0 and ar_h > 0:
-                # Get sample image dimensions from input folder if available
-                input_path = self.input_folder.get().strip()
-                if input_path and os.path.exists(input_path) and os.path.isdir(input_path):
-                    # Try to get first image to calculate dimensions
-                    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
-                    try:
-                        for f in Path(input_path).iterdir():
-                            if f.is_file() and f.suffix.lower() in image_extensions:
-                                try:
-                                    with Image.open(f) as img:
-                                        w, h = img.size
-                                        new_h = int(w * ar_h / ar_w)
-                                        self.width_var.set(str(w))
-                                        self.height_var.set(str(new_h))
-                                        return
-                                except Exception as e:
-                                    continue
-                    except Exception as e:
-                        pass
-                # If no image found, show placeholder
-                self.width_var.set("Will be calculated")
-                self.height_var.set("Will be calculated")
+                # Show that dimensions will be calculated per image
+                self.width_var.set("Auto-calculated per image")
+                self.height_var.set("Auto-calculated per image")
             else:
                 self.width_var.set("")
                 self.height_var.set("")
@@ -487,9 +457,9 @@ class ImageProcessorApp:
             except ValueError:
                 return f"Invalid DPI value: '{dpi_val}'. Must be a positive integer"
 
-        # Validate width (only if provided)
+        # Validate width (only if provided and is a number)
         width_val = self.width_var.get().strip()
-        if width_val:
+        if width_val and width_val not in ["Auto-calculated per image", "Will be calculated"]:
             try:
                 width_int = int(width_val)
                 if width_int <= 0:
@@ -497,9 +467,9 @@ class ImageProcessorApp:
             except ValueError:
                 return f"Invalid width value: '{width_val}'. Must be a positive integer"
 
-        # Validate height (only if provided)
+        # Validate height (only if provided and is a number)
         height_val = self.height_var.get().strip()
-        if height_val:
+        if height_val and height_val not in ["Auto-calculated per image", "Will be calculated"]:
             try:
                 height_int = int(height_val)
                 if height_int <= 0:
@@ -590,9 +560,9 @@ class ImageProcessorApp:
             self.log_message(f"[ERROR] Failed to create output folder: {e}")
             return
         
-        # Get image files
-        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif'}
-        image_files = [f for f in input_path.iterdir() if f.suffix.lower() in image_extensions]
+        # Get image files - only supported formats (PNG, JPEG, JPG, TIFF, WEBP)
+        supported_extensions = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.webp'}
+        image_files = [f for f in input_path.iterdir() if f.suffix.lower() in supported_extensions]
         
         self.log_message(f"[SCAN] Found {len(image_files)} image(s) in input folder")
         
@@ -626,22 +596,37 @@ class ImageProcessorApp:
             img = Image.open(image_file)
             original_size = img.size
             self.log_message(f"  [OPEN] Opened image - Size: {original_size[0]}x{original_size[1]}, Mode: {img.mode}, Format: {img.format}")
+            
+            # Get original DPI from input image
+            original_dpi = img.info.get('dpi', (72, 72))  # Default to 72 if not set
+            if isinstance(original_dpi, (tuple, list)) and len(original_dpi) >= 2:
+                original_dpi_str = f"{int(original_dpi[0])}x{int(original_dpi[1])}"
+            else:
+                original_dpi_str = "Default (72)"
+            self.log_message(f"  [DPI] Input image DPI: {original_dpi_str}")
+            
             changes = {}
             
             # Get DPI
-            dpi_val = self.dpi_var.get()
+            dpi_val = self.dpi_var.get().strip()
             if dpi_val:
-                changes["dpi"] = dpi_val
-                self.log_message(f"  [DPI] Setting DPI to {dpi_val}")
+                self.log_message(f"  [DPI] Will apply DPI: {dpi_val}")
             
             # Resize
-            if self.width_var.get() and self.height_var.get():
-                w = int(self.width_var.get())
-                h = int(self.height_var.get())
+            width_val = self.width_var.get().strip()
+            height_val = self.height_var.get().strip()
+            
+            # Check if width/height are actual numbers (not auto-calculated text)
+            is_valid_width = width_val and width_val not in ["Auto-calculated per image", "Will be calculated"]
+            is_valid_height = height_val and height_val not in ["Auto-calculated per image", "Will be calculated"]
+            
+            if is_valid_width and is_valid_height:
+                w = int(width_val)
+                h = int(height_val)
                 img = img.resize((w, h))
                 changes["size"] = f"{w}x{h}"
                 self.log_message(f"  [RESIZE] Resized to {w}x{h}")
-            elif self.percentage_var.get():
+            elif self.percentage_var.get().strip():
                 percentage = float(self.percentage_var.get())
                 w, h = img.size
                 new_w = int(w * percentage / 100)
@@ -649,8 +634,8 @@ class ImageProcessorApp:
                 img = img.resize((new_w, new_h))
                 changes["size"] = f"{percentage}% -> {new_w}x{new_h}"
                 self.log_message(f"  [RESIZE] Scaled by {percentage}% -> {new_w}x{new_h}")
-            elif self.aspect_ratio_var.get():
-                aspect_ratio = self.aspect_ratio_var.get()
+            elif self.aspect_ratio_var.get().strip():
+                aspect_ratio = self.aspect_ratio_var.get().strip()
                 w, h = img.size
                 ar_w, ar_h = map(int, aspect_ratio.split(':'))
                 new_h = int(w * ar_h / ar_w)
@@ -660,6 +645,17 @@ class ImageProcessorApp:
             
             # Convert format
             format_val = self.format_var.get()
+            dpi_tuple = None
+            
+            # Prepare DPI parameter
+            if dpi_val:
+                try:
+                    dpi_int = int(dpi_val)
+                    dpi_tuple = (dpi_int, dpi_int)
+                except ValueError:
+                    self.log_message(f"  [ERROR] Invalid DPI value: {dpi_val}")
+                    dpi_tuple = None
+            
             if format_val:
                 self.log_message(f"  [FORMAT] Converting to {format_val}")
                 if format_val.upper() in ['JPEG', 'JPG'] and img.mode != 'RGB':
@@ -681,10 +677,10 @@ class ImageProcessorApp:
                 output_file = output_path / output_filename
                 
                 self.log_message(f"  [SAVE] Saving as {pil_format} to {output_file}")
-                if dpi_val:
-                    img.save(output_file, pil_format, dpi=(int(dpi_val), int(dpi_val)))
-                else:
-                    img.save(output_file, pil_format)
+                save_kwargs = {}
+                if dpi_tuple:
+                    save_kwargs['dpi'] = dpi_tuple
+                img.save(output_file, pil_format, **save_kwargs)
                 
                 changes["format"] = pil_format
             else:
@@ -693,12 +689,18 @@ class ImageProcessorApp:
                 output_file = output_path / output_filename
                 
                 self.log_message(f"  [SAVE] Saving with original format to {output_file}")
-                if dpi_val:
-                    img.save(output_file, dpi=(int(dpi_val), int(dpi_val)))
-                else:
-                    img.save(output_file)
+                save_kwargs = {}
+                if dpi_tuple:
+                    save_kwargs['dpi'] = dpi_tuple
+                img.save(output_file, **save_kwargs)
             
             self.log_message(f"  [NEW SIZE] {img.size[0]}x{img.size[1]}")
+            
+            # Log DPI info
+            if dpi_val:
+                self.log_message(f"  [DPI] Output DPI applied: {dpi_val}x{dpi_val}")
+            else:
+                self.log_message(f"  [DPI] Output DPI: unchanged (kept original DPI)")
             
             # Add to results
             task = {
