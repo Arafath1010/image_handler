@@ -32,6 +32,9 @@ class ImageProcessorApp:
         self.height_entry = None  # Reference to height entry
         self.percent_entry = None  # Reference to percentage entry
         self.aspect_entry = None  # Reference to aspect ratio entry
+        self.manual_radio = None  # Reference to manual radio button
+        self.aspect_radio = None  # Reference to aspect radio button
+        self.percentage_radio = None  # Reference to percentage radio button
         self.create_ui()
     
     def log_message(self, message):
@@ -99,8 +102,8 @@ class ImageProcessorApp:
             msg_type = "Info"
             content = message.replace("[INFO] ", "")
         else:
-            msg_type = "Log"
-            content = message
+            # Skip untagged log entries (don't display "Log" type)
+            return
         
         # Insert into tree
         self.log_tree.insert("", "end", text=msg_type, values=(content, timestamp), tags=(msg_type.lower(),))
@@ -135,6 +138,113 @@ class ImageProcessorApp:
         for item in self.log_tree.get_children():
             self.log_tree.delete(item)
     
+    def show_log_context_menu(self, event):
+        """FIX 3: Show context menu on right-click"""
+        try:
+            self.log_context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.log_context_menu.grab_release()
+    
+    def copy_log_selection(self, event=None):
+        """FIX 3: Copy selected log entries to clipboard"""
+        selection = self.log_tree.selection()
+        if not selection:
+            return
+        
+        lines = []
+        for item in selection:
+            values = self.log_tree.item(item)
+            msg_type = values['text']
+            msg_values = values['values']
+            if msg_values:
+                message = msg_values[0]
+                timestamp = msg_values[1] if len(msg_values) > 1 else ""
+                lines.append(f"[{timestamp}] [{msg_type}] {message}")
+        
+        if lines:
+            text = "\n".join(lines)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.log_message("[INFO] Copied selected logs to clipboard")
+    
+    def copy_all_logs(self):
+        """FIX 3: Copy all log entries to clipboard"""
+        all_items = self.log_tree.get_children()
+        if not all_items:
+            return
+        
+        lines = []
+        for item in all_items:
+            values = self.log_tree.item(item)
+            msg_type = values['text']
+            msg_values = values['values']
+            if msg_values:
+                message = msg_values[0]
+                timestamp = msg_values[1] if len(msg_values) > 1 else ""
+                lines.append(f"[{timestamp}] [{msg_type}] {message}")
+        
+        if lines:
+            text = "\n".join(lines)
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+            self.log_message("[INFO] Copied all logs to clipboard")
+    
+    def save_log_to_file(self):
+        """Save all log entries to a text file in the output folder"""
+        all_items = self.log_tree.get_children()
+        if not all_items:
+            messagebox.showinfo("No Logs", "No logs to save")
+            return
+        
+        # Get output folder path
+        output_path = self.output_folder.get().strip()
+        if not output_path:
+            messagebox.showerror("Error", "Please select an output folder first")
+            return
+        
+        # Create output folder if it doesn't exist
+        if not os.path.exists(output_path):
+            try:
+                os.makedirs(output_path, exist_ok=True)
+            except Exception as e:
+                messagebox.showerror("Error", f"Cannot create output folder: {e}")
+                return
+        
+        # Generate log filename with timestamp
+        log_filename = f"processing_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        log_filepath = os.path.join(output_path, log_filename)
+        
+        # Collect log entries
+        lines = []
+        lines.append("="*80)
+        lines.append("IMAGE PROCESSOR - PROCESSING LOG")
+        lines.append(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append("="*80)
+        lines.append("")
+        
+        for item in all_items:
+            values = self.log_tree.item(item)
+            msg_type = values['text']
+            msg_values = values['values']
+            if msg_values:
+                message = msg_values[0]
+                timestamp = msg_values[1] if len(msg_values) > 1 else ""
+                lines.append(f"[{timestamp}] [{msg_type:10s}] {message}")
+        
+        lines.append("")
+        lines.append("="*80)
+        lines.append("END OF LOG")
+        lines.append("="*80)
+        
+        # Write to file
+        try:
+            with open(log_filepath, 'w', encoding='utf-8') as f:
+                f.write("\n".join(lines))
+            messagebox.showinfo("Log Saved", f"Log saved successfully to:\n{log_filepath}")
+            self.log_message(f"[INFO] Log saved to: {log_filename}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save log: {e}")
+    
     def create_ui(self):
         # Input folder selection
         frame1 = ttk.LabelFrame(self.root, text="Input Folder", padding=10)
@@ -167,8 +277,9 @@ class ImageProcessorApp:
         frame3.grid(row=2, column=0, sticky="ew", padx=10, pady=5)
         
         ttk.Label(frame3, text="Format:").grid(row=0, column=0, sticky="w")
+        # FIX 4: Add both .tif and .tiff options
         format_combo = ttk.Combobox(frame3, textvariable=self.format_var, 
-                    values=["", "JPG", "JPEG", "PNG", "TIF", "WEBP"], width=12)
+                    values=["", "JPG", "JPEG", "PNG", "TIF", "TIFF", "WEBP"], width=12)
         format_combo.grid(row=0, column=1, sticky="w", padx=5)
         self.input_fields.append(format_combo)
         
@@ -182,12 +293,20 @@ class ImageProcessorApp:
         radio_frame = ttk.Frame(frame3)
         radio_frame.grid(row=1, column=1, columnspan=3, sticky="w", padx=5, pady=(10, 5))
         
-        ttk.Radiobutton(radio_frame, text="Manual Width/Height", variable=self.resize_mode, 
-                       value="manual", command=self.on_resize_mode_change).pack(side="left", padx=5)
-        ttk.Radiobutton(radio_frame, text="Aspect Ratio", variable=self.resize_mode, 
-                       value="aspect", command=self.on_resize_mode_change).pack(side="left", padx=5)
-        ttk.Radiobutton(radio_frame, text="Percentage", variable=self.resize_mode, 
-                       value="percentage", command=self.on_resize_mode_change).pack(side="left", padx=5)
+        self.manual_radio = ttk.Radiobutton(radio_frame, text="Manual Width/Height", variable=self.resize_mode, 
+                       value="manual", command=self.on_resize_mode_change)
+        self.manual_radio.pack(side="left", padx=5)
+        self.input_fields.append(self.manual_radio)
+        
+        self.aspect_radio = ttk.Radiobutton(radio_frame, text="Aspect Ratio", variable=self.resize_mode, 
+                       value="aspect", command=self.on_resize_mode_change)
+        self.aspect_radio.pack(side="left", padx=5)
+        self.input_fields.append(self.aspect_radio)
+        
+        self.percentage_radio = ttk.Radiobutton(radio_frame, text="Percentage", variable=self.resize_mode, 
+                       value="percentage", command=self.on_resize_mode_change)
+        self.percentage_radio.pack(side="left", padx=5)
+        self.input_fields.append(self.percentage_radio)
         
         ttk.Label(frame3, text="Width (px):").grid(row=2, column=0, sticky="w")
         self.width_entry = ttk.Entry(frame3, textvariable=self.width_var, width=12)
@@ -258,16 +377,29 @@ class ImageProcessorApp:
         frame6 = ttk.LabelFrame(self.root, text="Processing Logs", padding=10)
         frame6.grid(row=0, column=2, rowspan=7, sticky="nsew", padx=10, pady=5)
         
-        # Log tree widget with scrollbar
-        log_scroll = ttk.Scrollbar(frame6)
-        log_scroll.pack(side="right", fill="y")
+        # Log tree widget with scrollbars (both vertical and horizontal)
+        log_scroll_y = ttk.Scrollbar(frame6, orient="vertical")
+        log_scroll_y.pack(side="right", fill="y")
         
-        self.log_tree = ttk.Treeview(frame6, columns=("Message", "Timestamp"), height=20, yscrollcommand=log_scroll.set)
-        log_scroll.config(command=self.log_tree.yview)
+        log_scroll_x = ttk.Scrollbar(frame6, orient="horizontal")
+        log_scroll_x.pack(side="bottom", fill="x")
         
-        self.log_tree.column("#0", width=80, stretch=tk.NO)
-        self.log_tree.column("Message", anchor="w", width=250)
-        self.log_tree.column("Timestamp", anchor="center", width=80)
+        self.log_tree = ttk.Treeview(frame6, columns=("Message", "Timestamp"), height=20, 
+                                     yscrollcommand=log_scroll_y.set, xscrollcommand=log_scroll_x.set,
+                                     selectmode="extended")
+        log_scroll_y.config(command=self.log_tree.yview)
+        log_scroll_x.config(command=self.log_tree.xview)
+        
+        # Configure style
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=20)
+        # Fix selection background to ensure text is visible
+        style.map("Treeview", background=[("selected", "#0078D7")], foreground=[("selected", "white")])
+        
+        # Set reasonable column widths
+        self.log_tree.column("#0", width=70, stretch=tk.NO)
+        self.log_tree.column("Message", anchor="w", width=400, stretch=tk.YES)
+        self.log_tree.column("Timestamp", anchor="center", width=70, stretch=tk.NO)
         
         self.log_tree.heading("#0", text="Type", anchor="w")
         self.log_tree.heading("Message", text="Message", anchor="w")
@@ -275,8 +407,24 @@ class ImageProcessorApp:
         
         self.log_tree.pack(fill="both", expand=True)
         
-        # Add clear logs button
-        ttk.Button(frame6, text="Clear Logs", command=self.clear_logs).pack(side="bottom", pady=5)
+        # FIX 3: Enable text selection and copying
+        # Bind right-click for context menu
+        self.log_tree.bind('<Button-3>', self.show_log_context_menu)
+        # Bind Ctrl+C for copying
+        self.log_tree.bind('<Control-c>', self.copy_log_selection)
+        
+        # Create context menu for log tree
+        self.log_context_menu = tk.Menu(self.root, tearoff=0)
+        self.log_context_menu.add_command(label="Copy", command=self.copy_log_selection)
+        self.log_context_menu.add_command(label="Copy All", command=self.copy_all_logs)
+        self.log_context_menu.add_separator()
+        self.log_context_menu.add_command(label="Clear Logs", command=self.clear_logs)
+        
+        # Add buttons frame for log actions
+        log_buttons_frame = ttk.Frame(frame6)
+        log_buttons_frame.pack(side="bottom", pady=5)
+        ttk.Button(log_buttons_frame, text="Save Log", command=self.save_log_to_file).pack(side="left", padx=5)
+        ttk.Button(log_buttons_frame, text="Clear Logs", command=self.clear_logs).pack(side="left", padx=5)
         
         # Configure grid weights
         self.root.columnconfigure(0, weight=1)  # Process controls and results
@@ -320,7 +468,8 @@ class ImageProcessorApp:
             self.percentage_var.set("")
             
         elif mode == "percentage":
-            # Disable width/height (will show calculated), enable percentage, disable aspect
+            # Disable width/height (will show calculated), enable percentage, disable aspect input
+            # Note: Keep aspect ratio radio button enabled so user can switch back
             self.width_entry.config(state="disabled")
             self.height_entry.config(state="disabled")
             self.percent_entry.config(state="normal")
@@ -328,7 +477,6 @@ class ImageProcessorApp:
             self.width_var.set("")
             self.height_var.set("")
             self.aspect_ratio_var.set("")
-    
     def calculate_dimensions_from_percentage(self, *args):
         """Calculate and display dimensions when percentage is entered"""
         if self.resize_mode.get() != "percentage":
@@ -390,15 +538,38 @@ class ImageProcessorApp:
             widget.config(state="disabled")
         if self.process_button:
             self.process_button.config(state="disabled")
+        # Disable all resize mode radio buttons during processing
+        if self.manual_radio:
+            self.manual_radio.config(state="disabled")
+        if self.aspect_radio:
+            self.aspect_radio.config(state="disabled")
+        if self.percentage_radio:
+            self.percentage_radio.config(state="disabled")
     
     def enable_inputs(self):
         """Enable all input fields after processing"""
-        for widget in self.input_fields:
-            widget.config(state="normal")
+        # First enable buttons and base inputs
         for widget in self.input_buttons:
             widget.config(state="normal")
         if self.process_button:
             self.process_button.config(state="normal")
+        
+        # Enable all 3 radio buttons after processing
+        if self.manual_radio:
+            self.manual_radio.config(state="normal")
+        if self.aspect_radio:
+            self.aspect_radio.config(state="normal")
+        if self.percentage_radio:
+            self.percentage_radio.config(state="normal")
+        
+        # Enable format and DPI fields (always available)
+        for widget in self.input_fields:
+            if widget not in [self.width_entry, self.height_entry, self.percent_entry, 
+                             self.aspect_entry, self.manual_radio, self.aspect_radio, self.percentage_radio]:
+                widget.config(state="normal")
+        
+        # Restore proper state based on current resize mode
+        self.on_resize_mode_change()
     
     def select_input_folder(self):
         folder = filedialog.askdirectory(title="Select Input Folder")
@@ -504,9 +675,16 @@ class ImageProcessorApp:
         resize_mode = self.resize_mode.get()
         
         if resize_mode == "manual":
-            # Manual mode: can have width and/or height
-            # Already validated above
-            pass
+            # Manual mode: MUST have both width AND height, or neither
+            # Check if width/height are actual numbers (not auto-calculated text)
+            is_valid_width = width_val and width_val not in ["Auto-calculated per image", "Will be calculated"]
+            is_valid_height = height_val and height_val not in ["Auto-calculated per image", "Will be calculated"]
+            
+            # Validate that both are provided if any resize is intended
+            if is_valid_width and not is_valid_height:
+                return "In manual mode, please provide both Width and Height values, or leave both empty"
+            elif is_valid_height and not is_valid_width:
+                return "In manual mode, please provide both Width and Height values, or leave both empty"
         elif resize_mode == "percentage":
             # Percentage mode: must have percentage value
             if not percentage_val:
@@ -620,6 +798,7 @@ class ImageProcessorApp:
             is_valid_width = width_val and width_val not in ["Auto-calculated per image", "Will be calculated"]
             is_valid_height = height_val and height_val not in ["Auto-calculated per image", "Will be calculated"]
             
+            # Manual mode: both width and height must be provided (validated earlier)
             if is_valid_width and is_valid_height:
                 w = int(width_val)
                 h = int(height_val)
@@ -657,10 +836,11 @@ class ImageProcessorApp:
                     dpi_tuple = None
             
             if format_val:
+                # FIX 4: Show exact format with correct extension in logs
                 self.log_message(f"  [FORMAT] Converting to {format_val}")
                 if format_val.upper() in ['JPEG', 'JPG'] and img.mode != 'RGB':
                     img = img.convert('RGB')
-                    self.log_message(f"  [CONVERT] Converted image mode to RGB for JPEG")
+                    self.log_message(f"  [CONVERT] Converted image mode to RGB for {format_val}")
                 
                 format_upper = format_val.upper()
                 format_map = {
@@ -671,12 +851,14 @@ class ImageProcessorApp:
                     'TIFF': 'TIFF',
                     'WEBP': 'WEBP'
                 }
+                # FIX 4: Use the user-selected format for extension, not the PIL format
                 pil_format = format_map.get(format_upper, format_upper)
-                extension = format_upper.lower() if format_upper != 'TIFF' else 'tif'
+                extension = format_val.lower()  # Keep user's chosen extension (.jpg or .jpeg, .tif or .tiff)
                 output_filename = f"{image_file.stem}.{extension}"
                 output_file = output_path / output_filename
                 
-                self.log_message(f"  [SAVE] Saving as {pil_format} to {output_file}")
+                # FIX 4: Log with the user-selected format showing correct extension
+                self.log_message(f"  [SAVE] Saving as {format_val.upper()} (.{extension}) to {output_file}")
                 save_kwargs = {}
                 if dpi_tuple:
                     save_kwargs['dpi'] = dpi_tuple
